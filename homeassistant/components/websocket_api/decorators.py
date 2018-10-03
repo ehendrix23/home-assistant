@@ -73,13 +73,13 @@ def ws_require_user(
                 return
 
             if (only_system_user and
-                    not connection.user.group.system_generated):
+                    not connection.user.system_generated):
                 output_error('only_system_user',
                              'Only allowed as system user')
                 return
 
             if (not allow_system_user
-                    and connection.user.group.system_generated):
+                    and connection.user.system_generated):
                 output_error('not_system_user', 'Not allowed as system user')
                 return
 

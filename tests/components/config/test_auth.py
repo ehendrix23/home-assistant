@@ -204,7 +204,7 @@ async def test_create(hass, hass_ws_client, hass_access_token):
     assert user.name == data_user['name']
     assert user.is_active
     assert not user.is_owner
-    assert not user.group.system_generated
+    assert not user.system_generated
 
 
 async def test_create_requires_owner(hass, hass_ws_client, hass_access_token):

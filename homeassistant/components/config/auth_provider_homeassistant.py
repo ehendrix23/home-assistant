@@ -68,7 +68,7 @@ async def websocket_create(hass, connection, msg):
             msg['id'], 'not_found', 'User not found'))
         return
 
-    if user.group.system_generated:
+    if user.system_generated:
         connection.send_message(websocket_api.error_message(
             msg['id'], 'system_generated',
             'Cannot add credentials to a system generated user.'))

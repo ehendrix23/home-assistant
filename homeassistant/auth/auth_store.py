@@ -28,31 +28,22 @@ class DataStore(storage.Store):
                                   old_data: Dict[str, Any]) -> Dict[str, Any]:
         """Migrate to the new version."""
         if old_version <= 1:
-            system_group_id = old_data['system_user_group_id'] = \
-                uuid.uuid4().hex
-            family_group_id = old_data['default_new_user_group_id'] = \
-                uuid.uuid4().hex
+            all_access_group_id = uuid.uuid4().hex
 
             old_data['groups'] = [
                 {
-                    'name': 'System',
-                    'id': system_group_id,
-                    'system_generated': True,
-                },
-                {
-                    'name': 'Family',
-                    'id': family_group_id,
-                    'system_generated': False,
+                    'name': 'All Access',
+                    'id': all_access_group_id,
                 },
             ]
 
             for user_dict in old_data['users']:
-                if user_dict.pop('system_generated'):
-                    group_id = system_group_id
+                if user_dict['system_generated']:
+                    groups = []
                 else:
-                    group_id = family_group_id
+                    groups = [all_access_group_id]
 
-                user_dict['group_id'] = group_id
+                user_dict['group_ids'] = groups
 
             refresh_tokens = []
 
@@ -94,8 +85,6 @@ class AuthStore:
         self.hass = hass
         self._users = None  # type: Optional[Dict[str, models.User]]
         self._groups = None  # type: Optional[Dict[str, models.Group]]
-        self._default_new_user_group_id = None  # type: Optional[str]
-        self._system_user_group_id = None  # type: Optional[str]
         self._store = DataStore(hass)
 
     async def async_get_users(self) -> List[models.User]:
@@ -117,7 +106,6 @@ class AuthStore:
     async def async_create_user(
             self, name: Optional[str], is_owner: Optional[bool] = None,
             is_active: Optional[bool] = None,
-            group_id: Optional[str] = None,
             system_generated: Optional[bool] = None,
             credentials: Optional[models.Credentials] = None) -> models.User:
         """Create a new user."""
@@ -126,17 +114,17 @@ class AuthStore:
 
         assert self._users is not None
         assert self._groups is not None
-        assert self._system_user_group_id is not None
-        assert self._default_new_user_group_id is not None
 
         if system_generated:
-            group_id = self._system_user_group_id
-        elif group_id is None:
-            group_id = self._default_new_user_group_id
+            groups = []
+        else:
+            groups = [list(self._groups.values())[0]]
 
         kwargs = {
             'name': name,
-            'group': self._groups[group_id],
+            # Until we get group management, we just put everyone in the
+            # same group.
+            'groups': groups
         }  # type: Dict[str, Any]
 
         if is_owner is not None:
@@ -144,6 +132,9 @@ class AuthStore:
 
         if is_active is not None:
             kwargs['is_active'] = is_active
+
+        if system_generated is not None:
+            kwargs['system_generated'] = system_generated
 
         new_user = models.User(**kwargs)
 
@@ -304,13 +295,13 @@ class AuthStore:
             groups[group_dict['id']] = models.Group(
                 name=group_dict['name'],
                 id=group_dict['id'],
-                system_generated=group_dict['system_generated'],
             )
 
         for user_dict in data['users']:
             users[user_dict['id']] = models.User(
                 name=user_dict['name'],
-                group=groups[user_dict['group_id']],
+                groups=[groups[group_id] for group_id
+                        in user_dict['group_ids']],
                 id=user_dict['id'],
                 is_owner=user_dict['is_owner'],
                 is_active=user_dict['is_active'],
@@ -358,8 +349,6 @@ class AuthStore:
 
         self._groups = groups
         self._users = users
-        self._default_new_user_group_id = data['default_new_user_group_id']
-        self._system_user_group_id = data['system_user_group_id']
 
     @callback
     def _async_schedule_save(self) -> None:
@@ -378,7 +367,7 @@ class AuthStore:
         users = [
             {
                 'id': user.id,
-                'group_id': user.group.id,
+                'group_ids': [group.id for group in user.groups],
                 'is_owner': user.is_owner,
                 'is_active': user.is_active,
                 'name': user.name,
@@ -390,7 +379,6 @@ class AuthStore:
             {
                 'name': group.name,
                 'id': group.id,
-                'system_generated': group.system_generated,
             }
             for group in self._groups.values()
         ]
@@ -434,23 +422,16 @@ class AuthStore:
             'groups': groups,
             'credentials': credentials,
             'refresh_tokens': refresh_tokens,
-            'default_new_user_group_id': self._default_new_user_group_id,
-            'system_user_group_id': self._system_user_group_id,
         }
 
     def _set_defaults(self) -> None:
         """Set default values for auth store."""
         self._users = OrderedDict()  # type: Dict[str, models.User]
 
-        # Add default groups
-        system_group = models.Group(name='System', system_generated=True)
-        family_group = models.Group(name='Family')
-
-        self._default_new_user_group_id = family_group.id
-        self._system_user_group_id = system_group.id
+        # Add default group
+        all_access_group = models.Group(name='All Access')
 
         groups = OrderedDict()  # type: Dict[str, models.Group]
-        groups[system_group.id] = system_group
-        groups[family_group.id] = family_group
+        groups[all_access_group.id] = all_access_group
 
         self._groups = groups
